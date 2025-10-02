@@ -1,21 +1,25 @@
 name: Scrape Jaipur Auctions
 on:
   schedule:
-    - cron: '17 3,12 * * *'   # twice daily (IST-friendly)
-  workflow_dispatch:          # lets you run it manually
+    - cron: '17 3,12 * * *'   # twice daily
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     permissions:
-      contents: write         # needed to commit listings.json
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
-        run: pip install -r scraper/requirements.txt
+      - name: Install Python deps
+        run: |
+          pip install -r scraper/requirements.txt
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install --with-deps chromium
       - name: Run scraper
         run: python scraper/scrape.py
       - name: Commit updates
