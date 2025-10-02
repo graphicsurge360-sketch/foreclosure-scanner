@@ -64,6 +64,9 @@ const elList = document.getElementById('list');
 document.getElementById('reset').onclick = ()=>{ elQ.value=""; elLoc.value=""; elType.value=""; elPrice.value=""; render(); };
 
 fetch('data/listings.json?_=' + Date.now()).then(r=>r.json()).then(json=>{ DATA=json; render(); });
+// 🔥 Trigger re-render whenever user changes any filter
+elQ.addEventListener('input', render);
+[elLoc, elType, elPrice].forEach(el => el.addEventListener('change', render));
 
 function matches(d){
   const q=elQ.value.toLowerCase();
