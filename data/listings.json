@@ -1,0 +1,18 @@
+[
+  {
+    "id": "seed-1",
+    "title": "2BHK Flat, Vaishali Nagar",
+    "type": "Flat",
+    "address": "Plot 123, Queens Road, Jaipur",
+    "locality": "Vaishali Nagar",
+    "lat": 26.9139,
+    "lng": 75.748,
+    "reserve_price": 4500000,
+    "emd": 450000,
+    "auction_date": "2025-10-15 11:00",
+    "bank": "ABC Bank",
+    "source": "https://example.com/notice.pdf",
+    "status": "Open",
+    "source_portal": "Seed"
+  }
+]
