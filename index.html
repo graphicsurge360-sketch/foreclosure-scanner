@@ -1,39 +1,34 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Jaipur Auction Finder (Free MVP)</title>
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#fafafa;color:#111}
-    header{padding:12px 16px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:10}
-    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-    input,select,button{padding:8px 10px;border:1px solid #ddd;border-radius:8px}
-    #map{height:62vh}
-    .list{padding:10px 16px}
-    .card{background:#fff;border:1px solid #eee;border-radius:12px;padding:12px;margin:10px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
-    .badge{font-size:12px;border:1px solid #ddd;padding:2px 6px;border-radius:6px;margin-left:6px}
-    footer{padding:20px 16px;color:#444;font-size:13px}
-    a{text-decoration:none;color:#1a73e8}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Jaipur Auction Finder</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#fafafa;color:#111}
+  header{padding:12px 16px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:10}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  input,select,button{padding:8px 10px;border:1px solid #ddd;border-radius:8px}
+  #map{height:62vh}
+  .list{padding:10px 16px}
+  .card{background:#fff;border:1px solid #eee;border-radius:12px;padding:12px;margin:10px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .badge{font-size:12px;border:1px solid #ddd;padding:2px 6px;border-radius:6px;margin-left:6px}
+  footer{padding:20px 16px;color:#444;font-size:13px}
+  a{text-decoration:none;color:#1a73e8}
+</style>
 </head>
 <body>
 
 <header>
-  <h3 style="margin:0">Jaipur Auction Finder (Free MVP)</h3>
+  <h3 style="margin:0 0 8px">Jaipur Auction Finder</h3>
   <div class="controls">
-    <input id="q" placeholder="Search locality / bank / type" />
-    <select id="locality">
-      <option value="">All Localities</option>
-      <option>Vaishali Nagar</option><option>Mansarovar</option><option>Ajmer Road</option>
-      <option>Queens Road</option><option>C-Scheme</option><option>Jagatpura</option>
-      <option>Jhotwara</option><option>Pratap Nagar</option><option>Sodala</option>
-    </select>
+    <input id="q" placeholder="Search locality / bank / type"/>
+    <select id="locality"><option value="">All Localities</option></select>
     <select id="type">
       <option value="">All Types</option>
-      <option>Flat</option><option>Plot</option><option>House</option><option>Commercial</option>
+      <option>Flat</option><option>Plot</option><option>House</option>
+      <option>Commercial</option><option>Land</option>
     </select>
     <select id="priceBand">
       <option value="">Any Price</option>
@@ -51,90 +46,94 @@
 <div class="list" id="list"></div>
 
 <footer>
-  Listings are fetched from public sources and linked to the original notice. Bank auctions are typically on
-  “AS-IS-WHERE-IS / AS-IS-WHAT-IS” basis; verify title, dues and possession independently.
+  Listings are fetched from public sources and linked to the original notice. Bank auctions are typically on “AS-IS-WHERE-IS / AS-IS-WHAT-IS” basis; verify title, dues and possession independently.
 </footer>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-window.addEventListener('DOMContentLoaded', () => {
-  // Map setup
-  const map = L.map('map').setView([26.9124, 75.7873], 11);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom:19, attribution:'© OpenStreetMap'
-  }).addTo(map);
-  const markersLayer = L.layerGroup().addTo(map);
+window.addEventListener('DOMContentLoaded',()=>{
+  const map=L.map('map').setView([26.9124,75.7873],11);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  const markersLayer=L.layerGroup().addTo(map);
 
-  // Elements
-  const elQ     = document.getElementById('q');
-  const elLoc   = document.getElementById('locality');
-  const elType  = document.getElementById('type');
-  const elPrice = document.getElementById('priceBand');
-  const elList  = document.getElementById('list');
-  const elGo    = document.getElementById('go');
-  const elReset = document.getElementById('reset');
+  const elQ=document.getElementById('q');
+  const elLoc=document.getElementById('locality');
+  const elType=document.getElementById('type');
+  const elPrice=document.getElementById('priceBand');
+  const elList=document.getElementById('list');
+  const elGo=document.getElementById('go');
+  const elReset=document.getElementById('reset');
 
-  let DATA = [];
+  let DATA=[];
 
-  // Fetch data
-  fetch('data/listings.json?_=' + Date.now())
+  // Load JSON and populate locality dropdown
+  fetch('data/listings.json?_='+Date.now())
     .then(r=>r.json())
-    .then(json=>{ DATA=json; render(); })
-    .catch(()=>{ DATA=[]; render(); });
+    .then(json=>{
+      DATA=Array.isArray(json)?json:[];
+      populateLocalities(DATA);
+      render();
+    })
+    .catch(()=>{DATA=[];render();});
 
-  // Events
-  elQ.addEventListener('input', render);
-  [elLoc, elType, elPrice].forEach(el => el.addEventListener('change', render));
-  elGo.addEventListener('click', render);
-  elReset.addEventListener('click', () => {
-    elQ.value = ''; elLoc.value = ''; elType.value = ''; elPrice.value = '';
+  function populateLocalities(rows){
+    const set=new Set();
+    rows.forEach(r=>{if(r.locality)set.add(r.locality);});
+    const options=['<option value="">All Localities</option>'];
+    [...set].sort().forEach(loc=>options.push(`<option>${loc}</option>`));
+    elLoc.innerHTML=options.join('');
+  }
+
+  // Event handlers
+  elQ.addEventListener('input',render);
+  [elLoc,elType,elPrice].forEach(el=>el.addEventListener('change',render));
+  elGo.addEventListener('click',render);
+  elReset.addEventListener('click',()=>{
+    elQ.value='';elLoc.value='';elType.value='';elPrice.value='';
     render();
   });
 
-  // Filter
   function matches(d){
-    const q   = (elQ.value || '').toLowerCase();
-    const loc = elLoc.value;
-    const typ = elType.value;
-    const pb  = elPrice.value;
+    const q=elQ.value.toLowerCase();
+    const loc=elLoc.value;
+    const typ=elType.value;
+    const pb=elPrice.value;
 
     if(q){
-      const hay = `${d.title||''} ${d.locality||''} ${d.bank||''} ${d.type||''}`.toLowerCase();
+      const hay=`${d.title||''} ${d.locality||''} ${d.bank||''} ${d.type||''}`.toLowerCase();
       if(!hay.includes(q)) return false;
     }
-    if(loc && (d.locality||'') !== loc) return false;
-    if(typ && (d.type||'') !== typ) return false;
+    if(loc && (d.locality||'')!==loc) return false;
+    if(typ && (d.type||'')!==typ) return false;
     if(pb){
-      const [lo,hi] = pb.split('-').map(Number);
-      const rp = Number(d.reserve_price||0);
+      const[lo,hi]=pb.split('-').map(Number);
+      const rp=Number(d.reserve_price||0);
       if(!(rp>=lo && rp<=hi)) return false;
     }
     return true;
   }
 
-  // Render
   function render(){
     markersLayer.clearLayers();
-    elList.innerHTML = '';
+    elList.innerHTML='';
+    const rows=DATA.filter(matches);
 
-    const rows = DATA.filter(matches);
     rows.forEach(d=>{
-      if(d.lat && d.lng){
-        const m = L.marker([d.lat,d.lng]).addTo(markersLayer);
+      if(d.lat&&d.lng){
+        const m=L.marker([d.lat,d.lng]).addTo(markersLayer);
         m.bindPopup(
           `<b>${d.title||''}</b><br>${d.locality||''}<br>
-          Reserve: ₹${Number(d.reserve_price||0).toLocaleString()}<br>
-          Auction: ${d.auction_date||'-'}<br>
-          <a target="_blank" href="${d.source||'#'}">Source</a>`
+           Reserve: ₹${Number(d.reserve_price||0).toLocaleString()}<br>
+           Auction: ${d.auction_date||'-'}<br>
+           <a target="_blank" href="${d.source||'#'}">Source</a>`
         );
       }
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `
+      const card=document.createElement('div');
+      card.className='card';
+      card.innerHTML=`
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
           <div>
-            <b>${d.title||''}</b>
-            <span class="badge">${d.type||'Property'}</span>
+            <b>${d.title||''}</b> <span class="badge">${d.type||'Property'}</span>
             <div>${d.address||''}</div>
             <div>${d.locality||''}</div>
             <div>Bank: ${d.bank||'-'}</div>
@@ -151,6 +150,5 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 </script>
-
 </body>
 </html>
