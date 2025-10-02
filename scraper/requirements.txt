@@ -1,4 +1,6 @@
 requests
 beautifulsoup4
-pytz
+lxml
 python-dateutil
+tqdm
+playwright   # for ibapi
