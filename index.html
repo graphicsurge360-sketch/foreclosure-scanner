@@ -9,7 +9,7 @@
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#fafafa;color:#111}
     header{padding:12px 16px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:10}
-    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
     input,select,button{padding:8px 10px;border:1px solid #ddd;border-radius:8px}
     #map{height:62vh}
     .list{padding:10px 16px}
@@ -20,9 +20,9 @@
   </style>
 </head>
 <body>
+
 <header>
-  <button id="go">Search</button>
-  <h3 style="margin:0 0 8px">Jaipur Auction Finder (Free MVP)</h3>
+  <h3 style="margin:0">Jaipur Auction Finder (Free MVP)</h3>
   <div class="controls">
     <input id="q" placeholder="Search locality / bank / type" />
     <select id="locality">
@@ -31,7 +31,10 @@
       <option>Queens Road</option><option>C-Scheme</option><option>Jagatpura</option>
       <option>Jhotwara</option><option>Pratap Nagar</option><option>Sodala</option>
     </select>
-    <select id="type"><option value="">All Types</option><option>Flat</option><option>Plot</option><option>House</option><option>Commercial</option></select>
+    <select id="type">
+      <option value="">All Types</option>
+      <option>Flat</option><option>Plot</option><option>House</option><option>Commercial</option>
+    </select>
     <select id="priceBand">
       <option value="">Any Price</option>
       <option value="0-2500000">≤ 25L</option>
@@ -39,6 +42,7 @@
       <option value="5000000-10000000">50L–1Cr</option>
       <option value="10000000-999000000">≥ 1Cr</option>
     </select>
+    <button id="go">Search</button>
     <button id="reset">Reset</button>
   </div>
 </header>
@@ -47,70 +51,106 @@
 <div class="list" id="list"></div>
 
 <footer>
-  Listings are fetched from public sources and linked to the original notice. Bank auctions are typically on “AS‑IS‑WHERE‑IS / AS‑IS‑WHAT‑IS” basis; verify title, dues and possession independently.
+  Listings are fetched from public sources and linked to the original notice. Bank auctions are typically on
+  “AS-IS-WHERE-IS / AS-IS-WHAT-IS” basis; verify title, dues and possession independently.
 </footer>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-let map = L.map('map').setView([26.9124, 75.7873], 11);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(map);
-let markersLayer = L.layerGroup().addTo(map);
-let DATA=[];
+window.addEventListener('DOMContentLoaded', () => {
+  // Map setup
+  const map = L.map('map').setView([26.9124, 75.7873], 11);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom:19, attribution:'© OpenStreetMap'
+  }).addTo(map);
+  const markersLayer = L.layerGroup().addTo(map);
 
-const elQ = document.getElementById('q');
-const elLoc = document.getElementById('locality');
-const elType = document.getElementById('type');
-const elPrice = document.getElementById('priceBand');
-const elList = document.getElementById('list');
-document.getElementById('reset').onclick = ()=>{ elQ.value=""; elLoc.value=""; elType.value=""; elPrice.value=""; render(); };
+  // Elements
+  const elQ     = document.getElementById('q');
+  const elLoc   = document.getElementById('locality');
+  const elType  = document.getElementById('type');
+  const elPrice = document.getElementById('priceBand');
+  const elList  = document.getElementById('list');
+  const elGo    = document.getElementById('go');
+  const elReset = document.getElementById('reset');
 
-fetch('data/listings.json?_=' + Date.now()).then(r=>r.json()).then(json=>{ DATA=json; render(); });
-// 🔥 Trigger re-render whenever user changes any filter
-elQ.addEventListener('input', render);
-[elLoc, elType, elPrice].forEach(el => el.addEventListener('change', render));
+  let DATA = [];
 
-function matches(d){
-  const q=elQ.value.toLowerCase();
-  const loc=elLoc.value, typ=elType.value, pb=elPrice.value;
-  if(q && !(`${d.title} ${d.locality} ${d.bank} ${d.type}`.toLowerCase().includes(q))) return false;
-  if(loc && d.locality!==loc) return false;
-  if(typ && d.type!==typ) return false;
-  if(pb){
-    const [lo,hi]=pb.split('-').map(Number);
-    if(!(Number(d.reserve_price||0)>=lo && Number(d.reserve_price||0)<=hi)) return false;
-  }
-  return true;
-}
+  // Fetch data
+  fetch('data/listings.json?_=' + Date.now())
+    .then(r=>r.json())
+    .then(json=>{ DATA=json; render(); })
+    .catch(()=>{ DATA=[]; render(); });
 
-function render(){
-  markersLayer.clearLayers();
-  elList.innerHTML='';
-  const rows = DATA.filter(matches);
-  rows.forEach(d=>{
-    if(d.lat && d.lng){
-      const m=L.marker([d.lat,d.lng]).addTo(markersLayer);
-      m.bindPopup(`<b>${d.title}</b><br>${d.locality??''}<br>Reserve: ₹${Number(d.reserve_price||0).toLocaleString()}<br>Auction: ${d.auction_date??'-'}<br><a target="_blank" href="${d.source}">Source</a>`);
-    }
-    const card=document.createElement('div'); card.className='card';
-    card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div>
-          <b>${d.title}</b>
-          <span class="badge">${d.type||'Property'}</span>
-          <div>${d.address||''}</div>
-          <div>${d.locality||''}</div>
-          <div>Bank: ${d.bank||'-'}</div>
-        </div>
-        <div style="text-align:right;min-width:180px">
-          <div><b>₹${Number(d.reserve_price||0).toLocaleString()}</b></div>
-          <div>Auction: ${d.auction_date||'-'}</div>
-          <div>EMD: ₹${Number(d.emd||0).toLocaleString()}</div>
-          <a target="_blank" href="${d.source}">Open notice</a>
-        </div>
-      </div>`;
-    elList.appendChild(card);
+  // Events
+  elQ.addEventListener('input', render);
+  [elLoc, elType, elPrice].forEach(el => el.addEventListener('change', render));
+  elGo.addEventListener('click', render);
+  elReset.addEventListener('click', () => {
+    elQ.value = ''; elLoc.value = ''; elType.value = ''; elPrice.value = '';
+    render();
   });
-}
+
+  // Filter
+  function matches(d){
+    const q   = (elQ.value || '').toLowerCase();
+    const loc = elLoc.value;
+    const typ = elType.value;
+    const pb  = elPrice.value;
+
+    if(q){
+      const hay = `${d.title||''} ${d.locality||''} ${d.bank||''} ${d.type||''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    if(loc && (d.locality||'') !== loc) return false;
+    if(typ && (d.type||'') !== typ) return false;
+    if(pb){
+      const [lo,hi] = pb.split('-').map(Number);
+      const rp = Number(d.reserve_price||0);
+      if(!(rp>=lo && rp<=hi)) return false;
+    }
+    return true;
+  }
+
+  // Render
+  function render(){
+    markersLayer.clearLayers();
+    elList.innerHTML = '';
+
+    const rows = DATA.filter(matches);
+    rows.forEach(d=>{
+      if(d.lat && d.lng){
+        const m = L.marker([d.lat,d.lng]).addTo(markersLayer);
+        m.bindPopup(
+          `<b>${d.title||''}</b><br>${d.locality||''}<br>
+          Reserve: ₹${Number(d.reserve_price||0).toLocaleString()}<br>
+          Auction: ${d.auction_date||'-'}<br>
+          <a target="_blank" href="${d.source||'#'}">Source</a>`
+        );
+      }
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <div>
+            <b>${d.title||''}</b>
+            <span class="badge">${d.type||'Property'}</span>
+            <div>${d.address||''}</div>
+            <div>${d.locality||''}</div>
+            <div>Bank: ${d.bank||'-'}</div>
+          </div>
+          <div style="text-align:right;min-width:180px">
+            <div><b>₹${Number(d.reserve_price||0).toLocaleString()}</b></div>
+            <div>Auction: ${d.auction_date||'-'}</div>
+            <div>EMD: ₹${Number(d.emd||0).toLocaleString()}</div>
+            <a target="_blank" href="${d.source||'#'}">Open notice</a>
+          </div>
+        </div>`;
+      elList.appendChild(card);
+    });
+  }
+});
 </script>
+
 </body>
 </html>
