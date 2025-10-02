@@ -1,286 +1,266 @@
-import re, json, hashlib, sys, time
+import re, json, hashlib, sys
 from pathlib import Path
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from dateutil.parser import parse as dtparse
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; JaipurAuctionBot/1.0; +https://github.com/you)"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; JaipurAuctionBot/1.1; +https://github.com/you)"}
+
+# --- Heuristics / vocab ---
+BANK_WORDS = [
+    "SBI","State Bank of India","HDFC","ICICI","Axis","Punjab National Bank","PNB",
+    "Bank of Baroda","BoB","Canara Bank","Union Bank","IDBI","Kotak","Indian Bank"
+]
+
+JUNK_TITLE_PATTERNS = [
+    r"welcome guest",
+    r"please register",
+    r"on auction m&a options",
+    r"judgments? legal",
+    r"rules drt.*regulations",
+    r"information desk",
+]
 
 # --- Jaipur colonies/areas (aliases + normalised) ---
 COLONY_ALIASES = {
-    # West
-    "vaishali nagar":"Vaishali Nagar", "vaishalinagar":"Vaishali Nagar",
-    "queens road":"Queens Road", "queen's road":"Queens Road", "queen road":"Queens Road",
-    "ajmer road":"Ajmer Road", "ajmer rd":"Ajmer Road",
-    "chitrakoot":"Chitrakoot", "niwaru road":"Niwaru Road", "sodala":"Sodala", "bais godam":"Bais Godam",
-    "jhotwara":"Jhotwara", "hathoj":"Hathoj",
-    # South
-    "mansarovar":"Mansarovar", "new sanganer road":"New Sanganer Road",
-    "dcm":"DCM", "patalon ki dhani":"Patalon Ki Dhani",
-    "pratap nagar":"Pratap Nagar", "pratab nagar":"Pratap Nagar",
-    "sanganer":"Sanganer", "tonk road":"Tonk Road", "sitapura":"Sitapura",
-    "jagatpura":"Jagatpura", "malviya nagar":"Malviya Nagar", "gom defence colony":"GOM Defence Colony",
-    # Central
-    "c-scheme":"C-Scheme", "c scheme":"C-Scheme",
-    "bapu nagar":"Bapu Nagar", "ashok nagar":"Ashok Nagar", "mi road":"MI Road",
-    "bani park":"Bani Park", "banipark":"Bani Park", "station road":"Station Road",
-    # North/North-East
-    "vidhyadhar nagar":"Vidhyadhar Nagar", "vidyadhar nagar":"Vidhyadhar Nagar", "v d nagar":"Vidhyadhar Nagar",
-    "muralipura":"Muralipura", "vki":"VKI", "vki area":"VKI",
-    "lal kothi":"Lal Kothi", "jawahar nagar":"Jawahar Nagar",
-    # East
-    "agrawal farm":"Agrawal Farm", "durgapura":"Durgapura",
-    "gopalpura":"Gopalpura", "gopalpura bypass":"Gopalpura Bypass",
-    # Others
-    "amer":"Amer", "jal mahal":"Jal Mahal",
-    "rajapark":"Raja Park", "raja park":"Raja Park",
-    "hawa mahal":"Hawa Mahal",
-    "sikar road":"Sikar Road", "delhi road":"Delhi Road",
-    "jln marg":"JLN Marg", "j l n marg":"JLN Marg", "jawaharlal nehru marg":"JLN Marg",
+    "vaishali nagar":"Vaishali Nagar","vaishalinagar":"Vaishali Nagar",
+    "queens road":"Queens Road","queen's road":"Queens Road",
+    "ajmer road":"Ajmer Road","ajmer rd":"Ajmer Road",
+    "chitrakoot":"Chitrakoot","niwaru road":"Niwaru Road","sodala":"Sodala","bais godam":"Bais Godam",
+    "jhotwara":"Jhotwara","hathoj":"Hathoj","mansarovar":"Mansarovar","new sanganer road":"New Sanganer Road",
+    "pratap nagar":"Pratap Nagar","pratab nagar":"Pratap Nagar","sanganer":"Sanganer","tonk road":"Tonk Road",
+    "sitapura":"Sitapura","jagatpura":"Jagatpura","malviya nagar":"Malviya Nagar","c-scheme":"C-Scheme","c scheme":"C-Scheme",
+    "bapu nagar":"Bapu Nagar","ashok nagar":"Ashok Nagar","mi road":"MI Road","bani park":"Bani Park","banipark":"Bani Park",
+    "vidhyadhar nagar":"Vidhyadhar Nagar","vidyadhar nagar":"Vidhyadhar Nagar","vki":"VKI","lal kothi":"Lal Kothi",
+    "jawahar nagar":"Jawahar Nagar","agrawal farm":"Agrawal Farm","durgapura":"Durgapura","gopalpura":"Gopalpura",
+    "amer":"Amer","rajapark":"Raja Park","raja park":"Raja Park","sikar road":"Sikar Road","delhi road":"Delhi Road",
+    "jln marg":"JLN Marg","jawaharlal nehru marg":"JLN Marg"
 }
 
-# Optional map pins for common areas
 GEO = {
-    "Vaishali Nagar": (26.914, 75.748),
-    "Mansarovar": (26.858, 75.770),
-    "Ajmer Road": (26.885, 75.730),
-    "Queens Road": (26.908, 75.760),
-    "C-Scheme": (26.912, 75.809),
-    "Jagatpura": (26.822, 75.836),
-    "Pratap Nagar": (26.788, 75.824),
-    "Sodala": (26.898, 75.787),
-    "Bani Park": (26.928, 75.797),
-    "Jhotwara": (26.955, 75.740),
-    "Vidhyadhar Nagar": (26.954, 75.784),
-    "Tonk Road": (26.861, 75.802),
-    "Malviya Nagar": (26.853, 75.815),
-    "Amer": (26.985, 75.851)
+    "Vaishali Nagar": (26.914, 75.748), "Mansarovar": (26.858, 75.770), "Ajmer Road": (26.885, 75.730),
+    "Queens Road": (26.908, 75.760), "C-Scheme": (26.912, 75.809), "Jagatpura": (26.822, 75.836),
+    "Pratap Nagar": (26.788, 75.824), "Sodala": (26.898, 75.787), "Bani Park": (26.928, 75.797),
+    "Jhotwara": (26.955, 75.740), "Vidhyadhar Nagar": (26.954, 75.784), "Tonk Road": (26.861, 75.802),
+    "Malviya Nagar": (26.853, 75.815), "Amer": (26.985, 75.851)
 }
 
-def normspace(s): 
-    return re.sub(r"\s+", " ", (s or "")).strip()
-
-def sha1key(*parts):
-    raw = "|".join(normspace(p).lower() for p in parts)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+def norm(s): return re.sub(r"\s+"," ",(s or "")).strip()
+def sha1key(*parts): return hashlib.sha1("|".join(norm(p).lower() for p in parts).encode()).hexdigest()
 
 def parse_money(text):
     if not text: return None
-    t = text.replace(",", "").replace("₹", "").strip()
+    t = text.replace(",","").replace("₹","").replace("rs.","").lower()
     m = re.search(r"(\d+(?:\.\d+)?)", t)
     return int(float(m.group(1))) if m else None
 
 def parse_dt(text):
     if not text: return None
     try:
-        return dtparse(normspace(text), dayfirst=True).strftime("%Y-%m-%d %H:%M")
+        return dtparse(norm(text), dayfirst=True).strftime("%Y-%m-%d %H:%M")
     except Exception:
         return None
 
 def normalise_type(title):
-    t = (title or "").lower()
-    if any(k in t for k in ["flat", "apartment"]): return "Flat"
-    if any(k in t for k in ["plot"]): return "Plot"
+    t=(title or "").lower()
+    if any(k in t for k in ["flat","apartment"]): return "Flat"
+    if "plot" in t: return "Plot"
     if any(k in t for k in ["villa","house","independent"]): return "House"
-    if any(k in t for k in ["shop","showroom","commercial","office","industrial","warehouse","godown"]): return "Commercial"
-    if any(k in t for k in ["land"]): return "Land"
+    if any(k in t for k in ["shop","showroom","office","commercial","industrial","warehouse","godown"]): return "Commercial"
+    if "land" in t: return "Land"
     return "Property"
 
 def detect_locality(*texts):
-    blob = (" ".join([normspace(x) for x in texts if x])).lower()
+    blob=(" ".join(norm(x) for x in texts if x)).lower()
     for alias, proper in COLONY_ALIASES.items():
-        if alias in blob:
-            return proper
-    if "jaipur" in blob:
-        return "Jaipur"
+        if alias in blob: return proper
+    if "jaipur" in blob: return "Jaipur"
     return None
 
-# -------- SOURCE 1: eAuctionsIndia Jaipur (with pagination) --------
+def detect_bank(*texts):
+    blob=(" ".join(norm(x) for x in texts if x))
+    for b in BANK_WORDS:
+        if re.search(rf"\b{re.escape(b)}\b", blob, re.I): return b
+    return None
+
+def looks_junky(title_text):
+    t=(title_text or "").lower()
+    if len(t) < 12: return True
+    for rx in JUNK_TITLE_PATTERNS:
+        if re.search(rx, t): return True
+    return False
+
+# ---------- SOURCE 1: eAuctionsIndia (Jaipur pages) ----------
 def scrape_eai():
-    base = "https://www.eauctionsindia.com/city/jaipur"
-    out, page, seen_urls = [], 1, set()
-    while page <= 5:  # safety cap
-        url = base if page == 1 else f"{base}?page={page}"
+    base="https://www.eauctionsindia.com/city/jaipur"
+    out, page, seen=set(),1,set()
+    rows=[]
+    while page<=4:
+        url = base if page==1 else f"{base}?page={page}"
         try:
-            html = requests.get(url, headers=HEADERS, timeout=30).text
+            html=requests.get(url,headers=HEADERS,timeout=30).text
         except Exception as e:
             print("EAI request error:", e, file=sys.stderr); break
-        soup = BeautifulSoup(html, "html.parser")
+        soup=BeautifulSoup(html,"html.parser")
         cards = soup.select(".card, .col-md-4")
-        if not cards: 
-            break
+        if not cards: break
         for c in cards:
-            title_el = c.select_one("h5, h4, .card-title")
-            title = normspace(title_el.get_text() if title_el else "")
-            if not title: 
-                continue
-            link_el = c.select_one("a[href]")
-            link = None
+            title_el=c.select_one("h5,h4,.card-title")
+            title=norm(title_el.get_text() if title_el else "")
+            if looks_junky(title): continue
+            text=c.get_text(" ",strip=True)
+            link_el=c.select_one("a[href]")
+            link=None
             if link_el and link_el.get("href"):
-                href = link_el["href"]
-                link = href if href.startswith("http") else f"https://www.eauctionsindia.com{href}"
-            if link and link in seen_urls: 
-                continue
-            seen_urls.add(link or f"{url}#{len(out)}")
-            text = c.get_text(" ", strip=True)
+                href=link_el["href"]
+                link=href if href.startswith("http") else f"https://www.eauctionsindia.com{href}"
+            if link and link in seen: continue
+            if link: seen.add(link)
 
-            rp = None
-            m = re.search(r"Reserve\s*Price\s*:\s*₹?([\d,\.]+)", text, re.I)
-            if m: rp = parse_money(m.group(1))
+            rp=None
+            m=re.search(r"Reserve\s*Price\s*:\s*₹?([\d,\.]+)", text, re.I)
+            if m: rp=parse_money(m.group(1))
 
-            adt = None
-            m2 = re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)", text, re.I)
-            if m2: adt = parse_dt(m2.group(1))
+            adt=None
+            m2=re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)", text)
+            if m2: adt=parse_dt(m2.group(1))
 
-            locality = detect_locality(title, text)
-            typ = normalise_type(title)
+            locality=detect_locality(title,text)
+            bank=detect_bank(title,text)
+            typ=normalise_type(title)
+            lat=lng=None
+            if locality in GEO: lat,lng=GEO[locality]
 
-            lat = lng = None
-            if locality in GEO: lat, lng = GEO[locality]
-
-            out.append({
+            rows.append({
                 "id": sha1key("eai", title, link or url),
-                "title": title or "Auction property",
-                "type": typ,
-                "address": None,
-                "locality": locality or "Jaipur",
-                "lat": lat, "lng": lng,
-                "reserve_price": rp,
-                "emd": None,
-                "auction_date": adt,
-                "bank": None,
-                "source": link or url,
-                "status": "Open",
+                "title": title, "type": typ, "address": None,
+                "locality": locality or "Jaipur", "lat": lat, "lng": lng,
+                "reserve_price": rp, "emd": None, "auction_date": adt,
+                "bank": bank, "source": link or url, "status": "Open",
                 "source_portal": "eAuctionsIndia"
             })
         page += 1
-    return out
+    return rows
 
-# -------- SOURCE 2: Bank DRT (Jaipur) --------
+# ---------- SOURCE 2: BankDRT (Jaipur) ----------
 def scrape_bankdrt():
-    url = "https://www.bankdrt.com/nf/auction/show_auctions1.php?drt=Jaipur"
-    out = []
+    url="https://www.bankdrt.com/nf/auction/show_auctions1.php?drt=Jaipur"
+    out=[]
     try:
-        html = requests.get(url, headers=HEADERS, timeout=30).text
-        soup = BeautifulSoup(html, "html.parser")
+        html=requests.get(url,headers=HEADERS,timeout=30).text
+        soup=BeautifulSoup(html,"html.parser")
         for tr in soup.select("table tr"):
-            tds = [normspace(td.get_text()) for td in tr.select("td")]
-            a = tr.select_one("a[href]")
-            if not a or not tds: 
-                continue
-            link = a["href"]
-            link = link if link.startswith("http") else f"https://www.bankdrt.com/nf/auction/{link}"
-            title = tds[0] or "DRT Jaipur Auction"
-            text = " ".join(tds)
+            tds=[norm(td.get_text()) for td in tr.select("td")]
+            a=tr.select_one("a[href]")
+            if not a or not tds: continue
+            link=a["href"]; link=link if link.startswith("http") else f"https://www.bankdrt.com/nf/auction/{link}"
+            title=tds[0] or "DRT Jaipur Auction"
+            if looks_junky(title): continue
+            text=" ".join(tds)
 
-            rp = None
-            m = re.search(r"Reserve\s*Price\s*[:\-]?\s*₹?([\d,\.]+)", text, re.I)
-            if m: rp = parse_money(m.group(1))
-            adt = None
-            m2 = re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)", text)
-            if m2: adt = parse_dt(m2.group(1))
+            rp=None
+            m=re.search(r"Reserve\s*Price\s*[:\-]?\s*₹?([\d,\.]+)", text, re.I)
+            if m: rp=parse_money(m.group(1))
 
-            locality = detect_locality(title, text) or "Jaipur"
-            typ = normalise_type(title)
-            lat = lng = None
-            if locality in GEO: lat, lng = GEO[locality]
+            adt=None
+            m2=re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)", text)
+            if m2: adt=parse_dt(m2.group(1))
+
+            locality=detect_locality(title,text) or "Jaipur"
+            bank=detect_bank(title,text)
+            typ=normalise_type(title)
+            lat=lng=None
+            if locality in GEO: lat,lng=GEO[locality]
 
             out.append({
                 "id": sha1key("drt", title, link),
-                "title": title,
-                "type": typ,
-                "address": None,
-                "locality": locality,
-                "lat": lat, "lng": lng,
-                "reserve_price": rp,
-                "emd": None,
-                "auction_date": adt,
-                "bank": None,
-                "source": link,
-                "status": "Open",
+                "title": title, "type": typ, "address": None,
+                "locality": locality, "lat": lat, "lng": lng,
+                "reserve_price": rp, "emd": None, "auction_date": adt,
+                "bank": bank, "source": link, "status": "Open",
                 "source_portal": "BankDRT"
             })
     except Exception as e:
-        print("Bank DRT scrape error:", e, file=sys.stderr)
+        print("BankDRT error:", e, file=sys.stderr)
     return out
 
-# -------- SOURCE 3: MSTC forthcoming (scan for Jaipur/Rajasthan) --------
+# ---------- SOURCE 3: MSTC forthcoming (filter aggressively) ----------
 def scrape_mstc():
-    url = "https://www.mstcindia.co.in/contenthindi/Forthcoming_e_Auctions_For_All_regionshindi.aspx"
-    out = []
+    url="https://www.mstcindia.co.in/contenthindi/Forthcoming_e_Auctions_For_All_regionshindi.aspx"
+    out=[]
     try:
-        html = requests.get(url, headers=HEADERS, timeout=30).text
-        soup = BeautifulSoup(html, "html.parser")
+        html=requests.get(url,headers=HEADERS,timeout=30).text
+        soup=BeautifulSoup(html,"html.parser")
         for tr in soup.select("tr"):
-            txt = normspace(tr.get_text(" "))
-            if not txt: 
-                continue
-            if "jaipur" in txt.lower() or "rajasthan" in txt.lower():
-                title = txt.split("\n")[0][:120] or "MSTC e-Auction (Rajasthan)"
-                adt = None
-                m2 = re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)", txt, re.I)
-                if m2: adt = parse_dt(m2.group(1))
-                locality = detect_locality(txt) or "Jaipur"
-                typ = normalise_type(txt)
-                lat = lng = None
-                if locality in GEO: lat, lng = GEO[locality]
-                out.append({
-                    "id": sha1key("mstc", title, txt),
-                    "title": title,
-                    "type": typ,
-                    "address": None,
-                    "locality": locality,
-                    "lat": lat, "lng": lng,
-                    "reserve_price": None,
-                    "emd": None,
-                    "auction_date": adt,
-                    "bank": None,
-                    "source": url,
-                    "status": "Open",
-                    "source_portal": "MSTC"
-                })
+            txt=norm(tr.get_text(" "))
+            low=txt.lower()
+            if not txt: continue
+            if "jaipur" not in low and "rajasthan" not in low: continue
+            if looks_junky(txt): continue
+
+            title=txt[:140]
+            adt=None
+            m2=re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)", txt)
+            if m2: adt=parse_dt(m2.group(1))
+            locality=detect_locality(txt) or "Jaipur"
+            bank=detect_bank(txt)
+            typ=normalise_type(txt)
+            lat=lng=None
+            if locality in GEO: lat,lng=GEO[locality]
+
+            out.append({
+                "id": sha1key("mstc", title, txt),
+                "title": title, "type": typ, "address": None,
+                "locality": locality, "lat": lat, "lng": lng,
+                "reserve_price": None, "emd": None, "auction_date": adt,
+                "bank": bank, "source": url, "status": "Open",
+                "source_portal": "MSTC"
+            })
     except Exception as e:
-        print("MSTC scrape error:", e, file=sys.stderr)
+        print("MSTC error:", e, file=sys.stderr)
     return out
 
-# -------- Utilities --------
 def dedup(rows):
-    seen, out = set(), []
+    seen=set(); out=[]
     for r in rows:
-        key = r.get("id") or sha1key(r.get("title",""), r.get("auction_date",""), r.get("source",""))
-        if key in seen: 
-            continue
-        seen.add(key)
-        r["id"] = key
-        out.append(r)
+        key=r.get("id") or sha1key(r.get("title",""), r.get("auction_date",""), r.get("source",""))
+        if key in seen: continue
+        seen.add(key); r["id"]=key; out.append(r)
     return out
 
-def keep_jaipur(rows):
-    kept = []
+def quality_filter(rows):
+    good=[]
     for r in rows:
-        blob = " ".join([str(r.get("title","")), str(r.get("address","")), str(r.get("locality",""))]).lower()
-        if "jaipur" in blob or r.get("locality") in COLONY_ALIASES.values() or r.get("locality") in GEO.keys():
-            kept.append(r)
-    return kept
+        title=(r.get("title") or "")
+        if looks_junky(title): continue
+        blob=" ".join(str(r.get(k,"")) for k in ["title","address","locality"]).lower()
+        if "jaipur" not in blob and not r.get("locality"): continue
+        # keep only if has at least a price OR a date (avoid totally empty rows)
+        if not (r.get("reserve_price") or r.get("auction_date")): continue
+        good.append(r)
+    return good
+
+def backfill_geo(rows):
+    for r in rows:
+        loc=r.get("locality")
+        if loc in GEO and (not r.get("lat")):
+            r["lat"], r["lng"]=GEO[loc]
+    return rows
 
 def main():
-    all_rows = []
+    all_rows=[]
     all_rows += scrape_eai()
     all_rows += scrape_bankdrt()
     all_rows += scrape_mstc()
 
-    all_rows = keep_jaipur(all_rows)
+    all_rows = quality_filter(all_rows)
     all_rows = dedup(all_rows)
-
-    # add pins where we have coordinates
-    for r in all_rows:
-        if (not r.get("lat")) and r.get("locality") in GEO:
-            r["lat"], r["lng"] = GEO[r["locality"]]
+    all_rows = backfill_geo(all_rows)
 
     Path("data").mkdir(parents=True, exist_ok=True)
     Path("data/listings.json").write_text(json.dumps(all_rows, ensure_ascii=False, indent=2))
-    print(f"Wrote {len(all_rows)} listings at {datetime.now().isoformat()}")
+    print(f"Wrote {len(all_rows)} high-quality listings at {datetime.now().isoformat()}")
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
