@@ -1,0 +1,27 @@
+name: Scrape Jaipur Auctions
+on:
+  schedule:
+    - cron: '17 3,12 * * *'   # twice daily (IST-friendly)
+  workflow_dispatch:          # lets you run it manually
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write         # needed to commit listings.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+      - name: Run scraper
+        run: python scraper/scrape.py
+      - name: Commit updates
+        run: |
+          git config user.name "gha-bot"
+          git config user.email "gha-bot@example.com"
+          git add data/listings.json
+          git commit -m "Update Jaipur listings [skip ci]" || echo "No changes"
+          git push
